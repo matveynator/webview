@@ -329,6 +329,9 @@ private:
     if (!cls) {
       cls = objc_allocateClassPair(objc::get_class("NSObject"), class_name, 0);
       class_addProtocol(cls, objc_getProtocol("WKUIDelegate"));
+      if (auto protocol = objc_getProtocol("WebUIDelegate")) {
+        class_addProtocol(cls, protocol);
+      }
       class_addMethod(
           cls,
           objc::selector("webView:runOpenPanelWithParameters:initiatedByFrame:"
@@ -362,6 +365,39 @@ private:
             NSInvocation_invoke(invocation);
           }),
           "v@:@@@@");
+      class_addMethod(
+          cls,
+          objc::selector(
+              "webView:runOpenPanelForFileButtonWithResultListener:"
+              "allowMultipleFiles:"),
+          (IMP)(+[](id, SEL, id, id result_listener, BOOL allow_multiple) {
+            // Support legacy WebKit open panel callbacks used by WebView.
+            auto panel{NSOpenPanel_openPanel()};
+            NSOpenPanel_set_canChooseFiles(panel, true);
+            NSOpenPanel_set_canChooseDirectories(panel, false);
+            NSOpenPanel_set_allowsMultipleSelection(panel, !!allow_multiple);
+            auto modal_response{NSSavePanel_runModal(panel)};
+            if (modal_response != NSModalResponseOK) {
+              objc::msg_send<void>(result_listener, objc::selector("cancel"));
+              return;
+            }
+
+            if (allow_multiple) {
+              auto urls = NSOpenPanel_get_URLs(panel);
+              auto paths = objc::msg_send<id>(
+                  urls, objc::selector("valueForKey:"),
+                  NSString_stringWithUTF8String("path"));
+              objc::msg_send<void>(result_listener,
+                                   objc::selector("chooseFilenames:"), paths);
+              return;
+            }
+
+            auto url = NSSavePanel_get_URL(panel);
+            auto path = objc::msg_send<id>(url, objc::selector("path"));
+            objc::msg_send<void>(result_listener,
+                                 objc::selector("chooseFilename:"), path);
+          }),
+          "v@:@@B");
       objc_registerClassPair(cls);
     }
     return objc::Class_new(cls);
