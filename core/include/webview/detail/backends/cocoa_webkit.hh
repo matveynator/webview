@@ -378,6 +378,7 @@ private:
             NSOpenPanel_set_allowsMultipleSelection(panel, !!allow_multiple);
             auto modal_response{NSSavePanel_runModal(panel)};
             if (modal_response != NSModalResponseOK) {
+              objc::msg_send<void>(result_listener, objc::selector("cancel"));
               return;
             }
 
